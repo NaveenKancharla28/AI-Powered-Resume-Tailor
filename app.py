@@ -9,10 +9,10 @@ import json
 
 # User profile data (can be moved to a config file later)
 USER_PROFILE = {
-    "first_name": "Naveen",#Enter Your First Name
-    "last_name": "Chaitanya",#Enter your Last name
+    "first_name": "First name",#Enter Your First Name
+    "last_name": "Last name",#Enter your Last name
     "phone": "5123456789",#Enter mobile number
-    "email": "userl@exmaple.com",#Enter your mail
+    "email": "you@exmaple.com",#Enter your mail
     "address": "123 Main St, Cincinnati, OH 45202",#Enter your address
     "linkedin": "https://www.linkedin.com/in/sample",#Enter your linkdin profile
 }
