@@ -6,6 +6,13 @@ from __init__ import setup_rag_system, retrieve_answer
 from llm_utils import extract_keywords_from_jd, rewrite_resume, save_resume_to_docx
 from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
 import json
+from dotenv import load_dotenv
+
+
+load_dotenv()  # Load environment variables from .env file
+openai_api_key = os.getenv("OPENAI_API_KEY")
+
+HEADLESS = os.getenv("HEADLESS", "1") == "1"
 
 # User profile data (can be moved to a config file later)
 USER_PROFILE = {
@@ -25,7 +32,7 @@ def auto_apply_job(job_url, resume_path):
     print(f"🚀 Starting application process for {job_url}")
     
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=False)  # Keep headless=False to show browser
+        browser = p.chromium.launch(headless=HEADLESS,args=["--no-sandbox", "--disable-dev-shm-usage"])  # Keep headless=False to show browser
         page = browser.new_page()
         
         try:
@@ -142,7 +149,17 @@ if __name__ == "__main__":
     # Step 5: Save to file
     resume_path = "tailored_resume.docx"
     save_resume_to_docx(tailored_resume, resume_path)
+    # Step 5: Save tailored resume into mounted output folder
+OUTPUT_DIR = "output"
+os.makedirs(OUTPUT_DIR, exist_ok=True)
+resume_path = os.path.join(OUTPUT_DIR, "tailored_resume.docx")
+save_resume_to_docx(tailored_resume, resume_path)
+print(f"💾 Saved: {resume_path}")
 
-    # Step 6: Auto-apply to job
-    print("\n🤖 Auto-applying to job...")
-    auto_apply_job(job_url, resume_path)
+# Step 6: Auto-apply to job (form filling + screenshot handled inside the function)
+print("\n🤖 Auto-applying to job...")
+auto_apply_job(job_url, resume_path)
+
+jd_text = os.getenv("JD_TEXT") or input("Paste job description: ")
+job_url = os.getenv("JOB_URL") or input("Paste job application URL: ")
+

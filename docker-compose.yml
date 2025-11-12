@@ -1,0 +1,13 @@
+services:
+  ai-powered-resume-tailor:
+    build: .
+    container_name: ai-powered-resume-tailor
+    env_file: .env
+    environment:
+      - HEADLESS=1
+      - OUTPUT_DIR=/app/output
+    shm_size: "1g"
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./output:/app/output

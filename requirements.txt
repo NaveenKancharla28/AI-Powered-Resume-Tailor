@@ -1,0 +1,13 @@
+fastapi
+uvicorn
+openai
+tiktoken
+chromadb
+pandas
+numpy
+python-dotenv
+PyPDF2
+faiss-cpu
+sentence-transformers
+python-docx
+playwright
