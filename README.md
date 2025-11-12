@@ -59,35 +59,47 @@ Playwright / Selenium / Chromium – To extract job postings from websites
 
 Streamlit / CLI – Interface for generating resumes
 
-🧪 Example Workflow
-# Step 1: Clone the repo
+⚙️ Run the App
+Step 1 — Clone the repo
 git clone https://github.com/NaveenKancharla28/AI-Powered-Resume-Tailor.git
 cd AI-Powered-Resume-Tailor
 
-# Step 2: Install dependencies
-pip install -r requirements.txt
+Step 2 — Copy .env.example → .env
 
-# Step 3: Run the app
-python app.py
+Open .env and paste your own OpenAI API key:
+
+OPENAI_API_KEY=sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxx
+HEADLESS=1
+OUTPUT_DIR=/app/output
+
+Step 3 — Run in one line (Docker Compose)
+
+macOS / Linux
+
+JD_TEXT="$(pbpaste)" JOB_URL="https://careers.company.com/jobs/123" docker compose up --build
 
 
-You’ll be prompted to enter:
+Windows (PowerShell)
 
-Job Description (paste text or job URL)
+$env:JD_TEXT=(Get-Clipboard); $env:JOB_URL="https://careers.company.com/jobs/123"; docker compose up --build
 
-Base Resume Folder (path to your existing resumes)
 
-The app will generate a new, custom-tailored resume under /output.
+This will:
 
-🧭 Future Improvements
+build the Docker image (installs all dependencies automatically)
 
-⏭️ Integrate with LinkedIn job scraper for automatic JD extraction
+start the container
 
-⏭️ Add feedback scoring system (match %, keyword density)
+pass your job description (JD_TEXT) and job URL (JOB_URL)
 
-⏭️ Support for multi-language resumes
+generate a custom-tailored resume and save it to ./output/tailored_resume.docx
 
-⏭️ Build UI dashboard using Streamlit
+📁 Output Folder
+
+All generated files appear on your host under output/:
+
+output/
+ ├── tailored_resume.docx
 
 
 
