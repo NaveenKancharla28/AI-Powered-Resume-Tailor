@@ -1,113 +1,196 @@
-💼 AI-Powered Resume Tailor
 
-An intelligent RAG-based system that automatically customizes your resume for every job posting.
+# AI‑Powered Resume Tailor (RAG + Auto‑Apply)
 
-👨🏽‍💻 Overview
+A developer‑friendly tool that tailors your resume to a target Job Description (JD) and optionally auto‑fills common ATS forms. It combines a light Retrieval‑Augmented Generation (RAG) pipeline over your local career documents with LLM‑powered rewriting and Playwright automation for job applications.
 
-AI-Powered Resume Tailor helps job seekers create perfectly matched resumes for specific job descriptions — instantly.
-Built using Retrieval-Augmented Generation (RAG), this project analyzes your existing resumes, converts them into vector embeddings, and dynamically tailors a new resume that aligns with the target Job Description (JD) and company requirements.
+---
 
-Simply feed it a job description (or a job URL), and it intelligently tweaks your resume content — highlighting the most relevant experience, keywords, and phrasing — while preserving your personal writing tone.
+## What this does
 
-👁️ Core Features
+1. **RAG Grounding (Local PDFs/CSVs)**
+   - Ingests PDFs and CSVs from a `data/` folder.
+   - Chunks text, creates embeddings with `sentence-transformers`, and stores them in **FAISS**.
+   - Retrieves the most relevant chunks against your JD to ground the rewrite.
 
-RAG-based Resume Generation – Uses embeddings to retrieve the most relevant achievements and rewrite them for each job.
-Chromium Integration – Automatically extracts job descriptions directly from company websites.
-Semantic Resume Matching – Transforms your input resumes into vector representations and finds the closest semantic match.
-Smart Rewriting Engine – Rewrites sentences using LLMs to improve clarity and keyword alignment.
-Automated Tailoring Loop – Continuously compares the resume–JD similarity and refines output until an optimal match is reached.
-Data Privacy – Works locally; your personal data and resumes never leave your machine.
+2. **Resume Tailoring**
+   - Extracts keywords from the JD.
+   - Rewrites your base resume text to emphasize matching skills and impact aligned to the JD.
+   - Saves the output as a **.docx** file in the `output/` folder.
 
- How It Works
+3. **Auto‑Apply (Optional)**
+   - Uses **Playwright** (Chromium) to navigate to a job application URL and populate common fields.
+   - Keeps a configurable headless mode for CI or local control via `HEADLESS`.
 
-Ingestion → Upload 10–15 of your previous resumes (data/ folder).
+---
 
-Chunking → Breaks each resume into small, meaningful text segments.
+## Project Structure
 
-Embedding Generation → Converts text into vector representations using OpenAI/Local Embedding models.
+```
+app.py                  # Entry point: prompts for JD text/URL, triggers RAG + rewrite + optional auto-apply
+__init__.py             # setup_rag_system() and retrieve_answer() wiring
+ingest.py               # Loads PDFs/CSVs from data/, extracts text, calls chunking/embeddings, stores in FAISS
+chunking.py             # Chunking utilities for PDFs/CSVs
+embeddings.py           # SentenceTransformer model ('all-MiniLM-L6-v2') to encode chunks
+retrieval.py            # FAISSVectorStore wrapper: add/search, keep metadata per chunk
+llm_utils.py            # OpenAI client helpers: extract JD keywords, LLM rewrite, save .docx
+requirements.txt        # Python dependencies
+dockerfile              # Container build: installs deps and Chromium for Playwright
+docker-compose.yml      # Runs container, maps ./output, sets HEADLESS/OUTPUT_DIR
+```
 
-Retrieval → Finds the resume chunks most semantically similar to the new JD.
+> Notes
+> - The app assumes a `data/` directory at the repo root containing PDFs/CSVs you want to use as grounding material.
+> - The final tailored resume is written to `output/tailored_resume.docx`.
 
-LLM Tailoring → Uses the retrieved chunks and the new JD to generate a custom resume version.
+---
 
-Output → A polished, ATS-optimized resume ready to apply.
+## Prerequisites
 
-🗂️ Project Structure
-AI-Powered-Resume-Tailor/
-│
-├── data/                # Folder containing sample resumes
-├── app.py               # Main script to run the application
-├── chunking.py          # Splits resumes and JDs into semantic chunks
-├── embeddings.py        # Generates embeddings and stores vectors
-├── retrieval.py         # Retrieves most relevant resume sections
-├── ingest.py            # Handles resume ingestion and preprocessing
-├── llm_utils.py         # LLM interface for resume rewriting
-├── __init__.py          # Package initializer
-└── README.md
+- Python 3.11+
+- An OpenAI API key
+- For local Playwright runs: Chromium and dependencies. The Docker path installs these for you inside the image.
 
-⚙️ Tech Stack
+---
 
-Python 3.10+
+## Quick Start (Local)
 
-LangChain – For RAG pipeline orchestration
+1. **Create and activate a virtual environment**
+   ```bash
+   python -m venv .venv
+   source .venv/bin/activate    # Windows: .venv\Scripts\activate
+   ```
 
-OpenAI / Hugging Face Embeddings
+2. **Install dependencies**
+   ```bash
+   pip install --upgrade pip
+   pip install -r requirements.txt
+   ```
 
-FAISS / ChromaDB – For vector similarity search
+3. **Install Playwright Chromium**
+   ```bash
+   python -m playwright install chromium
+   ```
 
-Playwright / Selenium / Chromium – To extract job postings from websites
+4. **Create an `.env` file**
+   ```env
+   OPENAI_API_KEY=sk-...
+   HEADLESS=1               # 1=headless, 0=show browser
+   OUTPUT_DIR=output
+   ```
 
-Streamlit / CLI – Interface for generating resumes
+5. **Add your grounding data**
+   - Create a `data/` folder.
+   - Drop in relevant PDFs (projects, reports, certificates) and CSVs (skills matrices, accomplishments).
 
-⚙️ Run the App
-Step 1 — Clone the repo
-git clone https://github.com/NaveenKancharla28/AI-Powered-Resume-Tailor.git
-cd AI-Powered-Resume-Tailor
+6. **Run**
+   ```bash
+   python app.py
+   ```
+   The script will prompt for:
+   - `JD_TEXT` (paste the job description) or it will read it from your `.env` if set.
+   - `JOB_URL` (the application URL) for auto‑apply. Leave empty to skip.
 
-Step 2 — Copy .env.example → .env
+7. **Result**
+   - The tailored resume is saved to `output/tailored_resume.docx`.
 
-Open .env and paste your own OpenAI API key:
+---
 
-OPENAI_API_KEY=sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxx
-HEADLESS=1
-OUTPUT_DIR=/app/output
+## Quick Start (Docker)
 
-Step 3 — Run in one line (Docker Compose)
+Build the image:
+```bash
+docker build -t ai-powered-resume-tailor .
+```
 
-macOS / Linux
+Run with Compose (recommended):
+```bash
+docker compose up --build
+```
+Compose sets:
+- `HEADLESS=1`
+- `OUTPUT_DIR=/app/output`
+- Binds local `./output` to `/app/output` so the resume appears on your host.
 
-JD_TEXT="$(pbpaste)" JOB_URL="https://careers.company.com/jobs/123" docker compose up --build
+You can also pass environment at run time:
+```bash
+JD_TEXT="$(pbpaste)" JOB_URL="https://..." docker compose up --build
+```
+Or with plain Docker:
+```bash
+docker run --rm -it   --env-file .env   -e JD_TEXT="$(pbpaste)"   -e JOB_URL="https://..."   -v "$(pwd)/output:/app/output"   -p 8000:8000   ai-powered-resume-tailor
+```
 
+---
 
-Windows (PowerShell)
+## Configuration
 
-$env:JD_TEXT=(Get-Clipboard); $env:JOB_URL="https://careers.company.com/jobs/123"; docker compose up --build
+Environment variables:
 
+| Name            | Required | Default | Description                                              |
+|-----------------|----------|---------|----------------------------------------------------------|
+| `OPENAI_API_KEY`| Yes      | —       | OpenAI key used by `llm_utils.py`                        |
+| `HEADLESS`      | No       | `1`     | `1` to run Playwright headless, `0` to show the browser  |
+| `OUTPUT_DIR`    | No       | `output`| Where the .docx is written                               |
+| `JD_TEXT`       | No       | —       | If provided, used instead of interactive prompt          |
+| `JOB_URL`       | No       | —       | Application URL to auto‑apply. Leave empty to skip       |
 
-This will:
+---
 
-build the Docker image (installs all dependencies automatically)
+## How it Works (RAG Pipeline)
 
-start the container
+1. **Ingestion** (`ingest.py`)
+   - Reads PDFs via `PyPDF2` and CSVs via `pandas`.
+   - Produces clean text payloads.
 
-pass your job description (JD_TEXT) and job URL (JOB_URL)
+2. **Chunking** (`chunking.py`)
+   - Splits long text into word‑bounded chunks.
+   - For CSVs: per‑row or grouped chunks.
 
-generate a custom-tailored resume and save it to ./output/tailored_resume.docx
+3. **Embeddings** (`embeddings.py`)
+   - Encodes chunks with `sentence-transformers` model `all-MiniLM-L6-v2`.
+   - Stores `[{"chunk", "embedding"}]` per file.
 
-📁 Output Folder
+4. **Vector Store** (`retrieval.py`)
+   - Adds vectors to FAISS index and keeps metadata.
+   - Nearest‑neighbor search returns top‑k chunks with distances.
 
-All generated files appear on your host under output/:
+5. **LLM Orchestration** (`llm_utils.py`, `__init__.py`)
+   - Extracts JD keywords.
+   - Rewrites resume text, grounding on retrieved chunks.
+   - Exports the final resume to `.docx`.
 
-output/
- ├── tailored_resume.docx
+6. **Automation** (`app.py`)
+   - Optionally opens a Chromium page and fills common ATS fields using flexible selectors.
+   - Honors `HEADLESS` for CI and scripting.
 
+---
 
+## Troubleshooting
 
+- **Playwright timeouts or blank pages**  
+  Increase timeouts or set `HEADLESS=0` to observe UI. Ensure `python -m playwright install chromium` has run locally.
 
-🧑‍💻 Author
+- **`/dev/shm` issues inside Docker**  
+  `docker-compose.yml` sets `shm_size: "1g"`. Increase if pages crash in Chromium.
 
-Naveen Kancharla
-AI/ML Engineer | Building RAG-powered tools and intelligent automation
-🌐 [Portfolio](https://naveenflix.vercel.app/)
- | 💻 [GitHub](https://github.com/NaveenKancharla28)
- | ✉️ [LinkedIn https://www.linkedin.com/in/naveen-chaitanya-kancharla-358337238/](https://www.linkedin.com/in/naveen-chaitanya-kancharla-358337238/)
+- **FAISS dimension errors**  
+  Ensure embeddings are generated before searching. Verify your `data/` folder has readable PDFs/CSVs.
+
+- **No output file**  
+  Check `OUTPUT_DIR` and file permissions. The app should create `output/` automatically.
+
+---
+
+## Roadmap Ideas
+
+- Expose a minimal REST API with FastAPI for browser‑based control.
+- Add cover‑letter generation grounded by the same RAG store.
+- Add scoring for JD‑resume match and keyword coverage.
+- Support additional file types (DOCX parsing for base resumes).
+
+---
+
+## License
+
+MIT (or your preferred license).
+
