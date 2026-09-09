@@ -1,11 +1,17 @@
+# Python
 venv/
+.venv/
 __pycache__/
-*.pyc
+*.py[cod]
+*$py.class
+
+# Environment and OS files
 .env
 .env.*
 .DS_Store
 
-# Local/private career documents and generated resumes
+# Local career data and generated outputs
+# Keep only data/.gitkeep in the repository.
 data/*
 !data/.gitkeep
 output/
