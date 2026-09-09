@@ -3,53 +3,67 @@ import os
 from openai import OpenAI
 from docx import Document
 
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+DEFAULT_MODEL = "gpt-4o-mini"
+
+
+def _client():
+    return OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+
 
 def extract_keywords_from_jd(jd_text):
-    """
-    Extract important skills, tools, and job role keywords from a job description.
-    """
-    prompt = f"""
-    You are a career assistant. Extract the key skills, tools, technologies, and role keywords
-    from the job description below as a comma-separated list.
-
-    Job Description:
-    {jd_text}
-    """
-    response = client.chat.completions.create(
-        model="gpt-4o-mini",  # You can change this model
-        messages=[{"role": "user", "content": prompt}],
-        temperature=0.3
+    """Legacy keyword extraction retained for backwards compatibility."""
+    response = _client().chat.completions.create(
+        model=DEFAULT_MODEL,
+        messages=[{
+            "role": "user",
+            "content": (
+                "Extract the key skills, tools, technologies, and role keywords from this "
+                "job description as a comma-separated list.\n\n" + jd_text
+            ),
+        }],
+        temperature=0,
     )
     return response.choices[0].message.content.strip()
 
-def rewrite_resume(chunks, jd_text):
-    """
-    Rewrite the resume using relevant chunks and the JD.
-    """
+
+def rewrite_resume(chunks, jd_text, verified_requirements=None, missing_requirements=None):
+    """Rewrite only from supplied evidence; never invent candidate facts."""
+    verified_requirements = verified_requirements or []
+    missing_requirements = missing_requirements or []
     prompt = f"""
-    You are a professional resume editor. Based on the resume content below and the job description,
-    rewrite the resume so it is tailored for the role. Keep it ATS-friendly and professional.
+You are an evidence-grounded professional resume editor.
 
-    Resume Chunks:
-    {chunks}
+NON-NEGOTIABLE RULES:
+1. Use ONLY facts explicitly present in the CAREER EVIDENCE below.
+2. Never invent or infer employers, job titles, dates, technologies, metrics, certifications,
+   education, responsibilities, or achievements.
+3. Do not add a JD requirement merely because it appears in the job description.
+4. You may improve wording, ordering, and emphasis of supported facts.
+5. Preserve truthful numbers exactly; never manufacture metrics.
+6. Return only the tailored resume text.
 
-    Job Description:
-    {jd_text}
+Verified JD requirements supported by evidence:
+{', '.join(verified_requirements) or 'None'}
 
-    Return only the improved resume text.
-    """
-    response = client.chat.completions.create(
-        model="gpt-4o-mini",  # You can use gpt-4 or gpt-3.5
+JD requirements NOT verified by evidence. Do not add them:
+{', '.join(missing_requirements) or 'None'}
+
+CAREER EVIDENCE:
+{chunks}
+
+JOB DESCRIPTION:
+{jd_text}
+"""
+    response = _client().chat.completions.create(
+        model=DEFAULT_MODEL,
         messages=[{"role": "user", "content": prompt}],
-        temperature=0.7
+        temperature=0,
     )
     return response.choices[0].message.content.strip()
+
 
 def save_resume_to_docx(text, filename="tailored_resume.docx"):
-    """
-    Save the tailored resume to a .docx file.
-    """
+    """Save the tailored resume to a .docx file."""
     doc = Document()
     for line in text.split("\n"):
         doc.add_paragraph(line)
