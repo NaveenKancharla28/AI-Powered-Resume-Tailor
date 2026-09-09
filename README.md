@@ -1,196 +1,200 @@
+# AI-Powered Resume Tailor
 
-# AI‑Powered Resume Tailor (RAG + Auto‑Apply)
+An evidence-grounded resume tailoring pipeline that combines hybrid retrieval, deterministic ATS scoring, explainable gap analysis, LLM rewriting, cover-letter generation, and optional Playwright form filling.
 
-A developer‑friendly tool that tailors your resume to a target Job Description (JD) and optionally auto‑fills common ATS forms. It combines a light Retrieval‑Augmented Generation (RAG) pipeline over your local career documents with LLM‑powered rewriting and Playwright automation for job applications.
+The project is designed around one core rule: **the system should tailor a candidate's presentation without inventing qualifications.** Job applications remain human-controlled.
 
----
+## What it does
 
-## What this does
+1. **Ingest career evidence**
+   - Reads local PDFs/CSVs from `data/`.
+   - Chunks text and creates embeddings with `sentence-transformers`.
+   - Stores vectors in FAISS with source metadata.
 
-1. **RAG Grounding (Local PDFs/CSVs)**
-   - Ingests PDFs and CSVs from a `data/` folder.
-   - Chunks text, creates embeddings with `sentence-transformers`, and stores them in **FAISS**.
-   - Retrieves the most relevant chunks against your JD to ground the rewrite.
+2. **Hybrid retrieval (Phase 2)**
+   - Combines FAISS semantic retrieval with dependency-free BM25 lexical retrieval.
+   - Unifies candidates and applies deterministic reranking: 60% semantic + 40% lexical.
+   - Supports metadata filters.
 
-2. **Resume Tailoring**
-   - Extracts keywords from the JD.
-   - Rewrites your base resume text to emphasize matching skills and impact aligned to the JD.
-   - Saves the output as a **.docx** file in the `output/` folder.
+3. **ATS fit scoring (Phase 1)**
+   - Deterministic requirement matching with common technology aliases.
+   - Reports required-skill, preferred-skill, technology, and seniority coverage.
+   - Keeps missing or unverified requirements explicit.
 
-3. **Auto‑Apply (Optional)**
-   - Uses **Playwright** (Chromium) to navigate to a job application URL and populate common fields.
-   - Keeps a configurable headless mode for CI or local control via `HEADLESS`.
+4. **Evidence-grounded tailoring (Phase 1)**
+   - Uses only retrieved career evidence when rewriting the resume.
+   - The LLM is instructed not to invent employers, titles, dates, skills, metrics, certifications, education, or achievements.
+   - Exports a tailored `.docx`.
 
----
+5. **Explainability and gap analysis (Phase 3)**
+   - Classifies requirements as **strong**, **partial**, or **missing**.
+   - Shows supporting evidence for strong/partial matches.
+   - Produces a deterministic line-level resume diff.
+   - Links changed lines to matching JD requirements when possible.
 
-## Project Structure
+6. **Evidence-grounded cover letters (Phase 3)**
+   - Generates a concise cover letter using only verified career evidence.
+   - Missing requirements are never presented as candidate qualifications.
 
+7. **Optional application automation**
+   - Playwright can fill common application fields and upload the tailored resume.
+   - **Submission always requires explicit human confirmation** by typing `submit`.
+
+## Architecture
+
+```text
+Job Description
+      |
+      v
+  JD Parser
+      |
+      v
+Hybrid Retrieval <---- Local career evidence
+(FAISS + BM25)
+      |
+      +----> ATS Fit Score
+      |
+      +----> Evidence Index
+      |          |
+      |          v
+      |      Gap Analysis
+      |
+      v
+Evidence-Grounded Resume Rewrite
+      |
+      +----> Resume Diff + Change Reasons
+      |
+      +----> Cover Letter
+      |
+      v
+Human Review
+      |
+      v
+Optional Playwright Form Filling
+      |
+      v
+Explicit Submit Confirmation
 ```
-app.py                  # Entry point: prompts for JD text/URL, triggers RAG + rewrite + optional auto-apply
-__init__.py             # setup_rag_system() and retrieve_answer() wiring
-ingest.py               # Loads PDFs/CSVs from data/, extracts text, calls chunking/embeddings, stores in FAISS
-chunking.py             # Chunking utilities for PDFs/CSVs
-embeddings.py           # SentenceTransformer model ('all-MiniLM-L6-v2') to encode chunks
-retrieval.py            # FAISSVectorStore wrapper: add/search, keep metadata per chunk
-llm_utils.py            # OpenAI client helpers: extract JD keywords, LLM rewrite, save .docx
+
+## Project structure
+
+```text
+app.py                  # End-to-end CLI workflow and optional Playwright automation
+__init__.py             # RAG setup and retrieval wiring
+ats_scorer.py           # Deterministic ATS scoring and requirement matching
+evidence.py             # Requirement-to-evidence index and grounding summary
+gap_analysis.py         # Strong/partial/missing requirement analysis
+resume_diff.py          # Deterministic resume diff and change explanations
+cover_letter.py         # Evidence-grounded cover-letter generation
+jd_parser.py            # Structured job-description extraction
+llm_utils.py             # Evidence-grounded resume rewrite and DOCX export
+ingest.py               # Local PDF/CSV ingestion
+chunking.py             # Text chunking utilities
+embeddings.py           # SentenceTransformer embeddings
+retrieval.py            # FAISS + BM25 hybrid retrieval
 requirements.txt        # Python dependencies
-dockerfile              # Container build: installs deps and Chromium for Playwright
-docker-compose.yml      # Runs container, maps ./output, sets HEADLESS/OUTPUT_DIR
+tests/                  # Phase 1/2/3 unit tests
+data/.gitkeep            # Placeholder; real career documents stay local
 ```
-
-> Notes
-> - The app assumes a `data/` directory at the repo root containing PDFs/CSVs you want to use as grounding material.
-> - The final tailored resume is written to `output/tailored_resume.docx`.
-
----
 
 ## Prerequisites
 
 - Python 3.11+
-- An OpenAI API key
-- For local Playwright runs: Chromium and dependencies. The Docker path installs these for you inside the image.
+- OpenAI API key
+- For local Playwright runs: Chromium and its dependencies
 
----
+## Quick start
 
-## Quick Start (Local)
+1. Create a virtual environment:
 
-1. **Create and activate a virtual environment**
-   ```bash
-   python -m venv .venv
-   source .venv/bin/activate    # Windows: .venv\Scripts\activate
-   ```
+```bash
+python -m venv .venv
+source .venv/bin/activate
+```
 
-2. **Install dependencies**
-   ```bash
-   pip install --upgrade pip
-   pip install -r requirements.txt
-   ```
+2. Install dependencies:
 
-3. **Install Playwright Chromium**
-   ```bash
-   python -m playwright install chromium
-   ```
+```bash
+pip install --upgrade pip
+pip install -r requirements.txt
+python -m playwright install chromium
+```
 
-4. **Create an `.env` file**
-   ```env
-   OPENAI_API_KEY=sk-...
-   HEADLESS=1               # 1=headless, 0=show browser
-   OUTPUT_DIR=output
-   ```
+3. Create `.env`:
 
-5. **Add your grounding data**
-   - Create a `data/` folder.
-   - Drop in relevant PDFs (projects, reports, certificates) and CSVs (skills matrices, accomplishments).
+```env
+OPENAI_API_KEY=sk-...
+HEADLESS=1
+OUTPUT_DIR=output
+```
 
-6. **Run**
-   ```bash
-   python app.py
-   ```
-   The script will prompt for:
-   - `JD_TEXT` (paste the job description) or it will read it from your `.env` if set.
-   - `JOB_URL` (the application URL) for auto‑apply. Leave empty to skip.
+4. Put your own grounding documents in `data/` locally. **Do not commit resumes, job applications, certificates, or other personal documents.** The repository keeps only `data/.gitkeep`.
 
-7. **Result**
-   - The tailored resume is saved to `output/tailored_resume.docx`.
+5. Run:
 
----
+```bash
+python app.py
+```
 
-## Quick Start (Docker)
+The application prompts for a job description and optional application URL. It produces:
 
-Build the image:
+- `output/tailored_resume.docx`
+- `output/cover_letter.txt`
+- `output/resume_changes.txt`
+
+## Configuration
+
+| Variable | Required | Default | Purpose |
+|---|---|---|---|
+| `OPENAI_API_KEY` | Yes | — | OpenAI API access |
+| `HEADLESS` | No | `1` | Run Playwright headless (`1`) or visible (`0`) |
+| `OUTPUT_DIR` | No | `output` | Generated artifact directory |
+| `JD_TEXT` | No | — | Use a JD from the environment instead of prompting |
+| `JOB_URL` | No | — | Optional application URL for Playwright |
+| `FIRST_NAME` / `LAST_NAME` | No | — | Application form values |
+| `PHONE` / `EMAIL` | No | — | Application form values |
+| `ADDRESS` / `LINKEDIN` | No | — | Application form values |
+
+## Testing
+
+The unit tests cover the deterministic ATS/evidence behavior, hybrid retrieval, gap classification, and resume diffing.
+
+```bash
+python -m unittest discover -s tests -p "test_*.py"
+```
+
+The LLM and browser portions require external services/runtime dependencies and are not required for the deterministic unit-test suite.
+
+## Docker
+
+Build:
+
 ```bash
 docker build -t ai-powered-resume-tailor .
 ```
 
-Run with Compose (recommended):
+Run with Compose:
+
 ```bash
 docker compose up --build
 ```
-Compose sets:
-- `HEADLESS=1`
-- `OUTPUT_DIR=/app/output`
-- Binds local `./output` to `/app/output` so the resume appears on your host.
 
-You can also pass environment at run time:
-```bash
-JD_TEXT="$(pbpaste)" JOB_URL="https://..." docker compose up --build
-```
-Or with plain Docker:
-```bash
-docker run --rm -it   --env-file .env   -e JD_TEXT="$(pbpaste)"   -e JOB_URL="https://..."   -v "$(pwd)/output:/app/output"   -p 8000:8000   ai-powered-resume-tailor
-```
+Compose maps the local `./output` directory to the container output directory. Keep personal input documents local and outside version control.
 
----
+## Safety and privacy
 
-## Configuration
+- Never commit `.env` files or personal career documents.
+- `data/*`, generated outputs, PDFs, DOCX files, Python caches, and OS metadata are ignored by Git.
+- Removing a file from the current branch does **not** erase it from Git history. If sensitive files were previously pushed to a public repository, use a deliberate history-cleanup procedure and rotate any exposed secrets.
+- The Playwright flow intentionally requires a human to review the populated form and explicitly confirm submission.
 
-Environment variables:
+## Roadmap
 
-| Name            | Required | Default | Description                                              |
-|-----------------|----------|---------|----------------------------------------------------------|
-| `OPENAI_API_KEY`| Yes      | —       | OpenAI key used by `llm_utils.py`                        |
-| `HEADLESS`      | No       | `1`     | `1` to run Playwright headless, `0` to show the browser  |
-| `OUTPUT_DIR`    | No       | `output`| Where the .docx is written                               |
-| `JD_TEXT`       | No       | —       | If provided, used instead of interactive prompt          |
-| `JOB_URL`       | No       | —       | Application URL to auto‑apply. Leave empty to skip       |
-
----
-
-## How it Works (RAG Pipeline)
-
-1. **Ingestion** (`ingest.py`)
-   - Reads PDFs via `PyPDF2` and CSVs via `pandas`.
-   - Produces clean text payloads.
-
-2. **Chunking** (`chunking.py`)
-   - Splits long text into word‑bounded chunks.
-   - For CSVs: per‑row or grouped chunks.
-
-3. **Embeddings** (`embeddings.py`)
-   - Encodes chunks with `sentence-transformers` model `all-MiniLM-L6-v2`.
-   - Stores `[{"chunk", "embedding"}]` per file.
-
-4. **Vector Store** (`retrieval.py`)
-   - Adds vectors to FAISS index and keeps metadata.
-   - Nearest‑neighbor search returns top‑k chunks with distances.
-
-5. **LLM Orchestration** (`llm_utils.py`, `__init__.py`)
-   - Extracts JD keywords.
-   - Rewrites resume text, grounding on retrieved chunks.
-   - Exports the final resume to `.docx`.
-
-6. **Automation** (`app.py`)
-   - Optionally opens a Chromium page and fills common ATS fields using flexible selectors.
-   - Honors `HEADLESS` for CI and scripting.
-
----
-
-## Troubleshooting
-
-- **Playwright timeouts or blank pages**  
-  Increase timeouts or set `HEADLESS=0` to observe UI. Ensure `python -m playwright install chromium` has run locally.
-
-- **`/dev/shm` issues inside Docker**  
-  `docker-compose.yml` sets `shm_size: "1g"`. Increase if pages crash in Chromium.
-
-- **FAISS dimension errors**  
-  Ensure embeddings are generated before searching. Verify your `data/` folder has readable PDFs/CSVs.
-
-- **No output file**  
-  Check `OUTPUT_DIR` and file permissions. The app should create `output/` automatically.
-
----
-
-## Roadmap Ideas
-
-- Expose a minimal REST API with FastAPI for browser‑based control.
-- Add cover‑letter generation grounded by the same RAG store.
-- Add scoring for JD‑resume match and keyword coverage.
-- Support additional file types (DOCX parsing for base resumes).
-
----
+- **Phase 1:** deterministic ATS scoring, evidence grounding, safe resume rewriting. ✅
+- **Phase 2:** hybrid FAISS + BM25 retrieval, reranking, metadata filters. ✅
+- **Phase 3:** explainable diffs, gap analysis, evidence-grounded cover letters. ✅
+- **Phase 4:** semantic requirement matching, richer evidence graphs, evaluation/benchmarking, and a cleaner API/UI layer.
 
 ## License
 
-MIT (or your preferred license).
-
+MIT
