@@ -18,22 +18,29 @@ def _requirement_evidence(requirement: str, chunks: list[dict[str, Any]]) -> lis
     ]
 
 
-def _evidence_strength(requirement: str, evidence: list[dict[str, Any]]) -> float:
-    """Estimate lexical evidence coverage without inventing semantic support."""
+def _best_partial_evidence(requirement: str, chunks: list[dict[str, Any]]) -> tuple[float, list[dict[str, Any]]]:
     requirement_tokens = _tokens(requirement)
     if not requirement_tokens:
-        return 0.0
-    evidence_tokens = _tokens(" ".join(str(item.get("chunk", "")) for item in evidence))
-    return len(requirement_tokens & evidence_tokens) / len(requirement_tokens)
+        return 0.0, []
+
+    scored = []
+    for chunk in chunks:
+        chunk_tokens = _tokens(str(chunk.get("chunk", "")))
+        overlap = len(requirement_tokens & chunk_tokens) / len(requirement_tokens)
+        if overlap > 0:
+            scored.append((overlap, chunk))
+    scored.sort(key=lambda item: item[0], reverse=True)
+    best_score = scored[0][0] if scored else 0.0
+    return best_score, [item[1] for item in scored if item[0] == best_score][:3]
 
 
 def analyze_gaps(parsed_jd: dict[str, Any], evidence_chunks: list[dict[str, Any]]) -> dict[str, Any]:
-    """Classify each JD requirement as strong, partial, or missing.
+    """Classify JD requirements as strong, partial, or missing.
 
-    Matching is deliberately conservative. A requirement is only strong when
-    the existing deterministic requirement matcher finds explicit evidence.
-    Partial means some requirement terms are present but the full requirement
-    is not verified. Missing means there is no meaningful lexical evidence.
+    Strong requires an explicit deterministic requirement match. Partial is
+    reserved for evidence containing at least half of the requirement's
+    lexical terms without satisfying the full matcher. Missing means no
+    meaningful lexical evidence was retrieved.
     """
     groups = [
         ("required", parsed_jd.get("required_skills", [])),
@@ -43,14 +50,16 @@ def analyze_gaps(parsed_jd: dict[str, Any], evidence_chunks: list[dict[str, Any]
     results = []
     for category, requirements in groups:
         for requirement in requirements:
-            evidence = _requirement_evidence(requirement, evidence_chunks)
-            strength = _evidence_strength(requirement, evidence)
-            if evidence:
+            strong_evidence = _requirement_evidence(requirement, evidence_chunks)
+            if strong_evidence:
                 status = "strong"
-            elif strength >= 0.5:
-                status = "partial"
+                strength = 1.0
+                evidence = strong_evidence
             else:
-                status = "missing"
+                strength, partial_evidence = _best_partial_evidence(requirement, evidence_chunks)
+                status = "partial" if strength >= 0.5 else "missing"
+                evidence = partial_evidence if status == "partial" else []
+
             results.append({
                 "requirement": requirement,
                 "category": category,
