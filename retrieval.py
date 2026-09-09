@@ -105,6 +105,7 @@ class FAISSVectorStore:
         bm25_candidates = self.bm25.search(query_text, limit=candidate_k, filters=filters)
         candidate_ids = {index for index, _ in vector_candidates} | {index for index, _ in bm25_candidates}
 
+        raw_distances = {index: distance for index, distance in vector_candidates}
         vector_scores = {index: 1.0 / (1.0 + distance) for index, distance in vector_candidates}
         bm25_scores = {index: score for index, score in bm25_candidates}
         max_bm25 = max(bm25_scores.values(), default=1.0)
@@ -126,7 +127,7 @@ class FAISSVectorStore:
             results.append({
                 "filename": metadata.get("filename", ""),
                 "chunk": clean_chunk,
-                "distance": 1.0 / max(vector_score, 1e-9) - 1.0 if vector_score else None,
+                "distance": raw_distances.get(index),
                 "bm25_score": round(lexical_score, 4),
                 "rerank_score": round(rerank_score, 4),
                 "metadata": {k: v for k, v in metadata.items() if k != "chunk"},
