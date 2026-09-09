@@ -5,13 +5,14 @@ from dotenv import load_dotenv
 from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
 
 from __init__ import setup_rag_system, retrieve_answer
+from ats_scorer import score_job_fit
+from evidence import build_evidence_index, evidence_summary
 from jd_parser import parse_job_description
 from llm_utils import rewrite_resume, save_resume_to_docx
 
 load_dotenv()
 HEADLESS = os.getenv("HEADLESS", "1") == "1"
 
-# Keep real personal information in .env, never in source control.
 USER_PROFILE = {
     "first_name": os.getenv("FIRST_NAME", ""),
     "last_name": os.getenv("LAST_NAME", ""),
@@ -26,17 +27,12 @@ def auto_apply_job(job_url: str, resume_path: str) -> None:
     """Fill common application fields and require explicit user confirmation."""
     if not job_url:
         return
-
     with sync_playwright() as p:
-        browser = p.chromium.launch(
-            headless=HEADLESS,
-            args=["--no-sandbox", "--disable-dev-shm-usage"],
-        )
+        browser = p.chromium.launch(headless=HEADLESS, args=["--no-sandbox", "--disable-dev-shm-usage"])
         page = browser.new_page()
         try:
             page.goto(job_url, wait_until="domcontentloaded", timeout=30000)
             page.wait_for_selector("form", timeout=10000)
-
             field_mappings = [
                 ('input[name*="first"][name*="name"], input[id*="first"][id*="name"], input[placeholder*="First Name"]', "first_name"),
                 ('input[name*="last"][name*="name"], input[id*="last"][id*="name"], input[placeholder*="Last Name"]', "last_name"),
@@ -45,7 +41,6 @@ def auto_apply_job(job_url: str, resume_path: str) -> None:
                 ('input[name*="address"], input[id*="address"], input[placeholder*="Address"]', "address"),
                 ('input[name*="linkedin"], input[id*="linkedin"], input[placeholder*="LinkedIn"]', "linkedin"),
             ]
-
             for selector, profile_key in field_mappings:
                 value = USER_PROFILE[profile_key]
                 if not value:
@@ -55,17 +50,13 @@ def auto_apply_job(job_url: str, resume_path: str) -> None:
                         element.fill(value)
                     except Exception:
                         pass
-
             file_input = page.query_selector('input[type="file"]')
             if file_input:
                 file_input.set_input_files(resume_path)
-
             print("Application form filled. Review it in the browser before submission.")
             confirmation = input("Type 'submit' to submit, or 'cancel' to abort: ").strip().lower()
             if confirmation == "submit":
-                submit_button = page.query_selector(
-                    'button[type="submit"], input[type="submit"], button:has-text("Submit"), button:has-text("Apply")'
-                )
+                submit_button = page.query_selector('button[type="submit"], input[type="submit"], button:has-text("Submit"), button:has-text("Apply")')
                 if submit_button:
                     submit_button.click()
                     print("Application submitted.")
@@ -81,10 +72,27 @@ def auto_apply_job(job_url: str, resume_path: str) -> None:
             browser.close()
 
 
+def _print_ats_report(report: dict, evidence: dict) -> None:
+    print("\nATS FIT REPORT")
+    print("=" * 48)
+    print(f"ATS SCORE: {report['overall_score']}/100")
+    print(f"Required Skills: {report['required_skill_coverage']}%")
+    print(f"Preferred Skills: {report['preferred_skill_coverage']}%")
+    print(f"Technology Match: {report['technology_coverage']}%")
+    print(f"Seniority Match: {report['seniority_alignment']}%")
+    print("\nVerified matches:")
+    for item in report["required_matches"] + report["technology_matches"]:
+        print(f"  ✓ {item}")
+    if report["missing_requirements"]:
+        print("\nMissing / unverified requirements:")
+        for item in report["missing_requirements"]:
+            print(f"  ⚠ {item}")
+    print(f"\nEvidence grounding coverage: {evidence['grounding_coverage']}%")
+
+
 def main() -> None:
     jd_text = os.getenv("JD_TEXT") or input("Paste job description: ").strip()
     job_url = os.getenv("JOB_URL") or input("Paste job application URL (optional): ").strip()
-
     if not jd_text:
         print("No job description provided. Exiting.")
         return
@@ -98,10 +106,9 @@ def main() -> None:
     print(f"Required skills: {', '.join(parsed_jd['required_skills']) or 'None identified'}")
 
     retrieval_query = " ".join(
-        parsed_jd["required_skills"]
-        + parsed_jd["preferred_skills"]
-        + parsed_jd["frameworks_tools"]
-        + parsed_jd["genai_ml_concepts"]
+        parsed_jd["required_skills"] + parsed_jd["preferred_skills"] +
+        parsed_jd["frameworks_tools"] + parsed_jd["cloud_platforms"] +
+        parsed_jd["genai_ml_concepts"]
     ) or jd_text
 
     print("\nRetrieving relevant career evidence...")
@@ -110,20 +117,32 @@ def main() -> None:
         print("No relevant career evidence found. Exiting without generating a resume.")
         return
 
-    resume_text = "\n\n".join(result["chunk"] for result in results)
+    all_requirements = (
+        parsed_jd["required_skills"] + parsed_jd["preferred_skills"] +
+        parsed_jd["frameworks_tools"] + parsed_jd["cloud_platforms"] +
+        parsed_jd["genai_ml_concepts"]
+    )
+    evidence_index = build_evidence_index(results, all_requirements)
+    evidence = evidence_summary(evidence_index)
+    report = score_job_fit(parsed_jd, results)
+    _print_ats_report(report, evidence)
 
-    print("\nTailoring resume using retrieved evidence...")
-    tailored_resume = rewrite_resume(resume_text, jd_text)
+    resume_text = "\n\n".join(result["chunk"] for result in results)
+    print("\nTailoring resume using verified evidence only...")
+    tailored_resume = rewrite_resume(
+        resume_text,
+        jd_text,
+        verified_requirements=evidence["verified"],
+        missing_requirements=evidence["unsupported"],
+    )
 
     print("\nTailored Resume:\n")
     print(tailored_resume)
-
     output_dir = "output"
     os.makedirs(output_dir, exist_ok=True)
     resume_path = os.path.join(output_dir, "tailored_resume.docx")
     save_resume_to_docx(tailored_resume, resume_path)
     print(f"\nSaved: {resume_path}")
-
     if job_url:
         auto_apply_job(job_url, resume_path)
 
