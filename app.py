@@ -10,7 +10,7 @@ from evidence import build_evidence_index, evidence_summary
 from gap_analysis import analyze_gaps
 from jd_parser import parse_job_description
 from llm_utils import rewrite_resume, save_resume_to_docx
-from resume_diff import build_resume_diff, summarize_changes
+from resume_diff import build_resume_diff, summarize_changes, explain_changes
 from cover_letter import generate_cover_letter
 
 load_dotenv()
@@ -150,12 +150,14 @@ def main() -> None:
     print(tailored_resume)
 
     changes = build_resume_diff(resume_text, tailored_resume)
+    explained_changes = explain_changes(changes, all_requirements)
     change_summary = summarize_changes(resume_text, tailored_resume)
     print("\nRESUME CHANGE SUMMARY")
     print("=" * 48)
     print(f"Added: {change_summary['added']} | Removed: {change_summary['removed']} | Total: {change_summary['total']}")
-    for change in changes:
+    for change in explained_changes:
         print(f"  {change['type'].upper():7} L{change['line']}: {change['text']}")
+        print(f"           Reason: {change['reason']}")
 
     print("\nGenerating evidence-grounded cover letter...")
     cover_letter = generate_cover_letter(
@@ -173,8 +175,9 @@ def main() -> None:
     with open(cover_letter_path, "w", encoding="utf-8") as handle:
         handle.write(cover_letter + "\n")
     with open(diff_path, "w", encoding="utf-8") as handle:
-        for change in changes:
+        for change in explained_changes:
             handle.write(f"{change['type'].upper()} L{change['line']}: {change['text']}\n")
+            handle.write(f"Reason: {change['reason']}\n")
 
     print(f"\nSaved resume: {resume_path}")
     print(f"Saved cover letter: {cover_letter_path}")
