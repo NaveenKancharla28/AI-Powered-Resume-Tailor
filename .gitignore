@@ -4,3 +4,10 @@ __pycache__/
 .env
 .env.*
 .DS_Store
+
+# Local/private career documents and generated resumes
+data/*
+!data/.gitkeep
+output/
+*.docx
+*.pdf
