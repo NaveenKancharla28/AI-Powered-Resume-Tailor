@@ -12,14 +12,10 @@ from llm_utils import rewrite_resume, save_resume_to_docx
 
 load_dotenv()
 HEADLESS = os.getenv("HEADLESS", "1") == "1"
-
 USER_PROFILE = {
-    "first_name": os.getenv("FIRST_NAME", ""),
-    "last_name": os.getenv("LAST_NAME", ""),
-    "phone": os.getenv("PHONE", ""),
-    "email": os.getenv("EMAIL", ""),
-    "address": os.getenv("ADDRESS", ""),
-    "linkedin": os.getenv("LINKEDIN", ""),
+    "first_name": os.getenv("FIRST_NAME", ""), "last_name": os.getenv("LAST_NAME", ""),
+    "phone": os.getenv("PHONE", ""), "email": os.getenv("EMAIL", ""),
+    "address": os.getenv("ADDRESS", ""), "linkedin": os.getenv("LINKEDIN", ""),
 }
 
 
@@ -99,7 +95,6 @@ def main() -> None:
 
     print("\nSetting up RAG system...")
     setup_rag_system()
-
     print("\nParsing job description...")
     parsed_jd = parse_job_description(jd_text)
     print(f"Role: {parsed_jd['role_title']}")
@@ -112,7 +107,7 @@ def main() -> None:
     ) or jd_text
 
     print("\nRetrieving relevant career evidence...")
-    results = retrieve_answer(retrieval_query)
+    results = retrieve_answer(retrieval_query, k=8)
     if not results:
         print("No relevant career evidence found. Exiting without generating a resume.")
         return
@@ -130,12 +125,10 @@ def main() -> None:
     resume_text = "\n\n".join(result["chunk"] for result in results)
     print("\nTailoring resume using verified evidence only...")
     tailored_resume = rewrite_resume(
-        resume_text,
-        jd_text,
+        resume_text, jd_text,
         verified_requirements=evidence["verified"],
         missing_requirements=evidence["unsupported"],
     )
-
     print("\nTailored Resume:\n")
     print(tailored_resume)
     output_dir = "output"
