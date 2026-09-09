@@ -7,7 +7,7 @@ from resume_diff import build_resume_diff, summarize_changes
 class Phase3Tests(unittest.TestCase):
     def test_gap_analysis_identifies_strong_partial_and_missing(self):
         jd = {
-            "required_skills": ["Python", "Azure ML", "REST APIs"],
+            "required_skills": ["Python", "Azure ML", "REST API"],
             "preferred_skills": ["Docker"],
             "frameworks_tools": ["FastAPI"],
             "cloud_platforms": [],
@@ -15,14 +15,14 @@ class Phase3Tests(unittest.TestCase):
         }
         evidence = [
             {"filename": "resume.pdf", "chunk": "Built Python APIs with FastAPI."},
-            {"filename": "project.pdf", "chunk": "Built API services for internal applications."},
+            {"filename": "project.pdf", "chunk": "Built REST services for internal applications."},
         ]
         result = analyze_gaps(jd, evidence)
         statuses = {item["requirement"]: item["status"] for item in result["items"]}
         self.assertEqual(statuses["Python"], "strong")
         self.assertEqual(statuses["FastAPI"], "strong")
         self.assertEqual(statuses["Azure ML"], "missing")
-        self.assertEqual(statuses["REST APIs"], "partial")
+        self.assertEqual(statuses["REST API"], "partial")
         self.assertEqual(result["summary"]["total"], 5)
 
     def test_resume_diff_reports_added_and_removed_lines(self):
