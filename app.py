@@ -1,165 +1,136 @@
-import sys
 import os
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+import sys
+
+from dotenv import load_dotenv
+from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
 
 from __init__ import setup_rag_system, retrieve_answer
-from llm_utils import extract_keywords_from_jd, rewrite_resume, save_resume_to_docx
-from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
-import json
-from dotenv import load_dotenv
+from jd_parser import parse_job_description
+from llm_utils import rewrite_resume, save_resume_to_docx
 
-
-load_dotenv()  # Load environment variables from .env file
-openai_api_key = os.getenv("OPENAI_API_KEY")
-
+load_dotenv()
 HEADLESS = os.getenv("HEADLESS", "1") == "1"
 
-# User profile data (can be moved to a config file later)
+# Keep real personal information in .env, never in source control.
 USER_PROFILE = {
-    "first_name": "First name",#Enter Your First Name
-    "last_name": "Last name",#Enter your Last name
-    "phone": "5123456789",#Enter mobile number
-    "email": "you@exmaple.com",#Enter your mail
-    "address": "123 Main St, Cincinnati, OH 45202",#Enter your address
-    "linkedin": "https://www.linkedin.com/in/sample",#Enter your linkdin profile
+    "first_name": os.getenv("FIRST_NAME", ""),
+    "last_name": os.getenv("LAST_NAME", ""),
+    "phone": os.getenv("PHONE", ""),
+    "email": os.getenv("EMAIL", ""),
+    "address": os.getenv("ADDRESS", ""),
+    "linkedin": os.getenv("LINKEDIN", ""),
 }
 
-def auto_apply_job(job_url, resume_path):
-    """
-    Automatically fill out job application forms using Playwright and allow user review before submission.
-    Supports common ATS platforms and LinkedIn.
-    """
-    print(f"🚀 Starting application process for {job_url}")
-    
-    with sync_playwright() as p:
-        browser = p.chromium.launch(headless=HEADLESS,args=["--no-sandbox", "--disable-dev-shm-usage"])  # Keep headless=False to show browser
-        page = browser.new_page()
-        
-        try:
-            # Navigate to the job application URL
-            page.goto(job_url, wait_until="domcontentloaded", timeout=30000)
-            print(f"📄 Navigated to {job_url}")
 
-            # Wait for form elements to load
+def auto_apply_job(job_url: str, resume_path: str) -> None:
+    """Fill common application fields and require explicit user confirmation."""
+    if not job_url:
+        return
+
+    with sync_playwright() as p:
+        browser = p.chromium.launch(
+            headless=HEADLESS,
+            args=["--no-sandbox", "--disable-dev-shm-usage"],
+        )
+        page = browser.new_page()
+        try:
+            page.goto(job_url, wait_until="domcontentloaded", timeout=30000)
             page.wait_for_selector("form", timeout=10000)
 
-            # Common field selectors for various platforms
             field_mappings = [
-                # First Name
-                {"selector": 'input[name*="first"][name*="name"], input[id*="first"][id*="name"], input[placeholder*="First Name"]', "value": USER_PROFILE["first_name"]},
-                # Last Name
-                {"selector": 'input[name*="last"][name*="name"], input[id*="last"][id*="name"], input[placeholder*="Last Name"]', "value": USER_PROFILE["last_name"]},
-                # Email
-                {"selector": 'input[type="email"], input[name*="email"], input[id*="email"], input[placeholder*="Email"]', "value": USER_PROFILE["email"]},
-                # Phone
-                {"selector": 'input[type="tel"], input[name*="phone"], input[id*="phone"], input[placeholder*="Phone"]', "value": USER_PROFILE["phone"]},
-                # Address
-                {"selector": 'input[name*="address"], input[id*="address"], input[placeholder*="Address"]', "value": USER_PROFILE["address"]},
-                # LinkedIn Profile
-                {"selector": 'input[name*="linkedin"], input[id*="linkedin"], input[placeholder*="LinkedIn"]', "value": USER_PROFILE["linkedin"]},
+                ('input[name*="first"][name*="name"], input[id*="first"][id*="name"], input[placeholder*="First Name"]', "first_name"),
+                ('input[name*="last"][name*="name"], input[id*="last"][id*="name"], input[placeholder*="Last Name"]', "last_name"),
+                ('input[type="email"], input[name*="email"], input[id*="email"], input[placeholder*="Email"]', "email"),
+                ('input[type="tel"], input[name*="phone"], input[id*="phone"], input[placeholder*="Phone"]', "phone"),
+                ('input[name*="address"], input[id*="address"], input[placeholder*="Address"]', "address"),
+                ('input[name*="linkedin"], input[id*="linkedin"], input[placeholder*="LinkedIn"]', "linkedin"),
             ]
 
-            # Fill text fields
-            for field in field_mappings:
-                try:
-                    elements = page.query_selector_all(field["selector"])
-                    for element in elements:
-                        element.fill(field["value"])
-                        print(f"✅ Filled field matching {field['selector']} with {field['value']}")
-                except Exception as e:
-                    print(f"⚠️ Could not fill field {field['selector']}: {str(e)}")
+            for selector, profile_key in field_mappings:
+                value = USER_PROFILE[profile_key]
+                if not value:
+                    continue
+                for element in page.query_selector_all(selector):
+                    try:
+                        element.fill(value)
+                    except Exception:
+                        pass
 
-            # Handle file upload for resume
-            try:
-                file_input = page.query_selector('input[type="file"]')
-                if file_input:
-                    file_input.set_input_files(resume_path)
-                    print(f"📎 Uploaded resume: {resume_path}")
+            file_input = page.query_selector('input[type="file"]')
+            if file_input:
+                file_input.set_input_files(resume_path)
+
+            print("Application form filled. Review it in the browser before submission.")
+            confirmation = input("Type 'submit' to submit, or 'cancel' to abort: ").strip().lower()
+            if confirmation == "submit":
+                submit_button = page.query_selector(
+                    'button[type="submit"], input[type="submit"], button:has-text("Submit"), button:has-text("Apply")'
+                )
+                if submit_button:
+                    submit_button.click()
+                    print("Application submitted.")
                 else:
-                    print("⚠️ No file upload field found.")
-            except Exception as e:
-                print(f"⚠️ Error uploading resume: {str(e)}")
-
-            # Pause for user review
-            print("\n📋 Application form filled. The browser is open for you to review the form.")
-            print("Please check the form in the browser window.")
-            user_input = input("Type 'submit' to submit the application, or 'cancel' to abort: ").strip().lower()
-
-            if user_input == 'submit':
-                # Attempt to submit the form
-                try:
-                    submit_button = page.query_selector('button[type="submit"], input[type="submit"], button:has-text("Submit"), button:has-text("Apply")')
-                    if submit_button:
-                        submit_button.click()
-                        print(f"✅ Application submitted for {job_url}")
-                    else:
-                        print("⚠️ No submit button found. Manual submission may be required.")
-                except Exception as e:
-                    print(f"⚠️ Error submitting form: {str(e)}")
+                    print("No submit button found; manual submission required.")
             else:
-                print("🚫 Application cancelled by user.")
-
+                print("Application cancelled.")
         except PlaywrightTimeoutError:
-            print(f" Timeout error while processing {job_url}. Page may not have loaded correctly.")
-        except Exception as e:
-            print(f"❌ Error processing {job_url}: {str(e)}")
+            print("Timed out while loading the application page.")
+        except Exception as exc:
+            print(f"Application error: {exc}")
         finally:
-            print("\n Closing browser. If you cancelled, you can manually submit the form in the browser before it closes.")
             browser.close()
 
-if __name__ == "__main__":
-    setup_rag_system()  # Initialize FAISS and store embeddings
 
-    # Input for job description and URL
-    jd_text = input("Paste job description: ")
-    job_url = input("Paste job application URL: ")
+def main() -> None:
+    jd_text = os.getenv("JD_TEXT") or input("Paste job description: ").strip()
+    job_url = os.getenv("JOB_URL") or input("Paste job application URL (optional): ").strip()
 
-    if not jd_text.strip():
+    if not jd_text:
         print("No job description provided. Exiting.")
-        sys.exit(0)
+        return
 
-    if not job_url.strip():
-        print("No job application URL provided. Exiting.")
-        sys.exit(0)
+    print("\nSetting up RAG system...")
+    setup_rag_system()
 
-    # Step 1: Extract keywords
-    print("\n🔍 Extracting keywords from JD...")
-    keywords = extract_keywords_from_jd(jd_text)
-    print(f"🎯 Extracted Keywords: {keywords}")
+    print("\nParsing job description...")
+    parsed_jd = parse_job_description(jd_text)
+    print(f"Role: {parsed_jd['role_title']}")
+    print(f"Required skills: {', '.join(parsed_jd['required_skills']) or 'None identified'}")
 
-    # Step 2: Search resume chunks with keywords
-    print("\n📂 Retrieving relevant resume sections...")
-    results = retrieve_answer(keywords)
+    retrieval_query = " ".join(
+        parsed_jd["required_skills"]
+        + parsed_jd["preferred_skills"]
+        + parsed_jd["frameworks_tools"]
+        + parsed_jd["genai_ml_concepts"]
+    ) or jd_text
 
+    print("\nRetrieving relevant career evidence...")
+    results = retrieve_answer(retrieval_query)
     if not results:
-        print("⚠️ No relevant chunks found.")
-        sys.exit(0)
+        print("No relevant career evidence found. Exiting without generating a resume.")
+        return
 
-    # Combine chunks
-    resume_text = "\n\n".join([res['chunk'] for res in results])
+    resume_text = "\n\n".join(result["chunk"] for result in results)
 
-    # Step 3: Rewrite resume
-    print("\n✏️ Tailoring resume to JD...")
+    print("\nTailoring resume using retrieved evidence...")
     tailored_resume = rewrite_resume(resume_text, jd_text)
 
-    # Step 4: Show output
-    print("\n📝 Tailored Resume:\n")
+    print("\nTailored Resume:\n")
     print(tailored_resume)
 
-    # Step 5: Save to file
-    resume_path = "tailored_resume.docx"
+    output_dir = "output"
+    os.makedirs(output_dir, exist_ok=True)
+    resume_path = os.path.join(output_dir, "tailored_resume.docx")
     save_resume_to_docx(tailored_resume, resume_path)
-    # Step 5: Save tailored resume into mounted output folder
-OUTPUT_DIR = "output"
-os.makedirs(OUTPUT_DIR, exist_ok=True)
-resume_path = os.path.join(OUTPUT_DIR, "tailored_resume.docx")
-save_resume_to_docx(tailored_resume, resume_path)
-print(f"💾 Saved: {resume_path}")
+    print(f"\nSaved: {resume_path}")
 
-# Step 6: Auto-apply to job (form filling + screenshot handled inside the function)
-print("\n🤖 Auto-applying to job...")
-auto_apply_job(job_url, resume_path)
+    if job_url:
+        auto_apply_job(job_url, resume_path)
 
-jd_text = os.getenv("JD_TEXT") or input("Paste job description: ")
-job_url = os.getenv("JOB_URL") or input("Paste job application URL: ")
 
+if __name__ == "__main__":
+    try:
+        main()
+    except KeyboardInterrupt:
+        print("\nCancelled by user.")
+        sys.exit(130)
