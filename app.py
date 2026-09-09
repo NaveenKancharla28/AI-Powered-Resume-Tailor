@@ -7,8 +7,11 @@ from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeo
 from __init__ import setup_rag_system, retrieve_answer
 from ats_scorer import score_job_fit
 from evidence import build_evidence_index, evidence_summary
+from gap_analysis import analyze_gaps
 from jd_parser import parse_job_description
 from llm_utils import rewrite_resume, save_resume_to_docx
+from resume_diff import build_resume_diff, explain_changes, summarize_changes
+from cover_letter import generate_cover_letter
 
 load_dotenv()
 HEADLESS = os.getenv("HEADLESS", "1") == "1"
@@ -68,7 +71,7 @@ def auto_apply_job(job_url: str, resume_path: str) -> None:
             browser.close()
 
 
-def _print_ats_report(report: dict, evidence: dict) -> None:
+def _print_ats_report(report: dict, evidence: dict, gaps: dict) -> None:
     print("\nATS FIT REPORT")
     print("=" * 48)
     print(f"ATS SCORE: {report['overall_score']}/100")
@@ -83,6 +86,10 @@ def _print_ats_report(report: dict, evidence: dict) -> None:
         print("\nMissing / unverified requirements:")
         for item in report["missing_requirements"]:
             print(f"  ⚠ {item}")
+    print("\nExplainable gap analysis:")
+    print(f"  Strong: {gaps['summary']['strong']}")
+    print(f"  Partial: {gaps['summary']['partial']}")
+    print(f"  Missing: {gaps['summary']['missing']}")
     print(f"\nEvidence grounding coverage: {evidence['grounding_coverage']}%")
 
 
@@ -120,7 +127,8 @@ def main() -> None:
     evidence_index = build_evidence_index(results, all_requirements)
     evidence = evidence_summary(evidence_index)
     report = score_job_fit(parsed_jd, results)
-    _print_ats_report(report, evidence)
+    gaps = analyze_gaps(parsed_jd, results)
+    _print_ats_report(report, evidence, gaps)
 
     resume_text = "\n\n".join(result["chunk"] for result in results)
     print("\nTailoring resume using verified evidence only...")
@@ -129,13 +137,31 @@ def main() -> None:
         verified_requirements=evidence["verified"],
         missing_requirements=evidence["unsupported"],
     )
-    print("\nTailored Resume:\n")
-    print(tailored_resume)
-    output_dir = "output"
+
+    changes = build_resume_diff(resume_text, tailored_resume)
+    diff_summary = summarize_changes(resume_text, tailored_resume)
+    explanations = explain_changes(changes, all_requirements)
+    print(f"\nResume changes: +{diff_summary['added']} / -{diff_summary['removed']}")
+    for item in explanations:
+        print(f"  • {item['explanation']} {item['change']}")
+
+    output_dir = os.getenv("OUTPUT_DIR", "output")
     os.makedirs(output_dir, exist_ok=True)
     resume_path = os.path.join(output_dir, "tailored_resume.docx")
     save_resume_to_docx(tailored_resume, resume_path)
     print(f"\nSaved: {resume_path}")
+
+    cover_letter = generate_cover_letter(
+        jd_text,
+        resume_text,
+        verified_requirements=evidence["verified"],
+        missing_requirements=evidence["unsupported"],
+    )
+    cover_letter_path = os.path.join(output_dir, "cover_letter.txt")
+    with open(cover_letter_path, "w", encoding="utf-8") as file:
+        file.write(cover_letter + "\n")
+    print(f"Saved: {cover_letter_path}")
+
     if job_url:
         auto_apply_job(job_url, resume_path)
 

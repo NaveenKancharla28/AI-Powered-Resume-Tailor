@@ -2,7 +2,6 @@ fastapi
 uvicorn
 openai
 tiktoken
-chromadb
 pandas
 numpy
 python-dotenv
